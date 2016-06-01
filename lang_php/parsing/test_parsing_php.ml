@@ -113,6 +113,47 @@ let test_dump_php file =
                       Sc sclr2)),rparen),
                 stmt,l,o) ->
 *)
+
+let print_lists ll =
+  List.iter (fun l ->
+      List.iter (fun x ->
+          Printf.printf "%s\n%!" x) l;
+      Printf.printf "~~~\n%!") ll
+
+let print_state global =
+  let open Printf in
+  match global with
+  | [[]] -> printf "[[]]\n"
+  | [] -> printf "[]\n"
+  | hd::tl ->
+    printf "Head: %!";
+    List.iter (fun x ->
+        printf "%s %!" x) hd;
+    printf "Tl: %!";
+    List.iter (fun l ->
+        List.iter (fun x ->
+            printf "%s %!" x) l;
+        printf "\n%!") tl;
+    printf "\n%!"
+
+let traverse_expr_tree exp =
+  let open Printf in
+  let open Ast_php in
+  let rec aux exp acc curr =
+    match exp with
+    | Binary (lhs,(op,op_tok),rhs) ->
+      let lacc,lcurr = aux lhs acc curr in
+      let racc, rcurr = aux rhs acc curr in
+      (lacc @ racc),(lcurr @ rcurr)
+    | ParenExpr (_,nested_exp,_) ->
+      let res_acc,res_curr = aux nested_exp acc [] in
+      res_curr::res_acc,[]
+    | IdVar (DName (v,_),_) ->
+      acc,(v::curr)
+    | _ -> acc,curr
+  in
+  aux exp [] [] |> fun (acc,hd) -> print_lists (hd::acc)
+
 let test_micro_clones_php file =
   let open Printf in
   let open Ast_php in
@@ -125,6 +166,26 @@ let test_micro_clones_php file =
       "%s:%d:%d" info.Parse_info.file
       info.Parse_info.line
       info.Parse_info.column in
+
+  let check_cond if_tok = function
+    | Binary (IdVar (DName (v1,_),_),(op,op_tok),
+              IdVar (DName (v2,_),_)) when v1 = v2 ->
+      (match op with
+       | Logical AndBool -> printf "%s: FOUND: %s && %s\n%!" (err if_tok) v1 v2;
+       | Logical OrBool -> printf "%s: FOUND: %s || %s\n%!" (err if_tok) v1 v2;
+       | _ -> ())
+    | Binary (IdVar (DName (v1,_),_),(op1,op_tok1),
+              (Binary (IdVar (DName (v2,_),_),(op2,op_tok2),
+                       IdVar (DName (v3,_),_))))
+      when v1 = v3 ->
+      printf "TEST1\n%!"
+    | Binary (Binary (IdVar (DName (v1,_),_),(op1,op_tok1),
+                      IdVar (DName (v3,_),_)), (op,op_tok2),
+              IdVar (DName (v2,_),_))
+      when v1 = v3 ->
+      printf "TEST2\n%!"
+    | _ -> printf "No 'cond' match\n%!" in
+
   let hooks =
     { Visitor_php.default_visitor with
       Visitor_php.kexpr = (fun (k,_) e ->
@@ -134,18 +195,11 @@ let test_micro_clones_php file =
 
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
-          | If (if_tok,(_,(
-              Binary (IdVar (DName (v1,_),_),(op,op_tok),
-                      IdVar (DName (v2,_),_)
-                     )),_),_,_,_) when v1 = v2 ->
-            (match op with
-             | Logical AndBool ->
-               printf "%s: FOUND: %s && %s\n%!" (err if_tok) v1 v2;
-             | Logical OrBool ->
-               printf "%s: FOUND: %s || %s\n%!" (err if_tok) v1 v2;
-             | _ -> ());
+          | If (if_tok,(_,exp,_),_,_,_) ->
+            check_cond if_tok exp;
+            traverse_expr_tree exp;
+            k s
           | _ -> k s)
-
     } in
   let visitor = Visitor_php.mk_visitor hooks in
   visitor (Ast.Program ast)
