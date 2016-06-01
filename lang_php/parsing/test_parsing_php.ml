@@ -107,9 +107,24 @@ let test_dump_php file =
 (*****************************************************************************)
 (* Test *)
 (*****************************************************************************)
-let test_micro_clones ast =
+(* Full matching:
+          | If (tok,(lparen,(
+              Binary (IdVar (DName (v,dname_tok),scope),(Arith And,and_tok),
+                      Sc sclr2)),rparen),
+                stmt,l,o) ->
+*)
+let test_micro_clones_php file =
   let open Printf in
   let open Ast_php in
+  let ast = Parse_php.parse_program file in
+  (*let (!) = Parse_info.str_of_info in (* tok to string *)*)
+  let err tok =
+    Parse_info.token_location_of_info tok
+    |> fun info ->
+    Printf.sprintf
+      "%s:%d:%d" info.Parse_info.file
+      info.Parse_info.line
+      info.Parse_info.column in
   let hooks =
     { Visitor_php.default_visitor with
       Visitor_php.kexpr = (fun (k,_) e ->
@@ -119,14 +134,16 @@ let test_micro_clones ast =
 
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
-          | If (tok,(_,(
-              Binary (IdVar (DName (v,_),_),b, Sc sclr2)),_),stmt,l,o) ->
-            let (!) = Parse_info.str_of_info in (* tok to string *)
-            printf "If : %s -- var: %s!\n%!" !tok v;
-            (match sclr2 with
-             | C (String (s,tok)) ->
-               printf " has constant: %s\n%!" s
-             | _ -> printf " no constant\n%!")
+          | If (if_tok,(_,(
+              Binary (IdVar (DName (v1,_),_),(op,op_tok),
+                      IdVar (DName (v2,_),_)
+                     )),_),_,_,_) when v1 = v2 ->
+            (match op with
+             | Logical AndBool ->
+               printf "%s: FOUND: %s && %s\n%!" (err if_tok) v1 v2;
+             | Logical OrBool ->
+               printf "%s: FOUND: %s || %s\n%!" (err if_tok) v1 v2;
+             | _ -> ());
           | _ -> k s)
 
     } in
@@ -139,8 +156,6 @@ let test_micro_clones ast =
 (*s: test_visit_php *)
 let test_visit_php file =
   let ast = Parse_php.parse_program file in
-  test_micro_clones ast;
-
   let hooks = { Visitor_php.default_visitor with
                 Visitor_php.kinfo = (fun (_k, _) tok ->
                     let s = Parse_info.str_of_info tok in
@@ -208,6 +223,8 @@ let actions () = [
   (* an alias for -sexp_php *)
   "-dump_php", "   <file>",
   Common.mk_action_1_arg test_dump_php;
+  "-micro_clones_php", "   <file>",
+  Common.mk_action_1_arg test_micro_clones_php;
   "-dump_php_ml", "   <file>",
   Common.mk_action_1_arg test_dump_php;
   (*x: test_parsing_php actions *)
