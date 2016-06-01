@@ -7,8 +7,8 @@ module Ast = Ast_php
 (* Lexing/Parsing *)
 (*****************************************************************************)
 (*s: test_tokens_php *)
-let test_tokens_php file = 
-  if not (file =~ ".*\\.php") 
+let test_tokens_php file =
+  if not (file =~ ".*\\.php")
   then pr2 "warning: seems not a .php file";
 
   Flag_parsing_php.verbose_lexing := true;
@@ -23,9 +23,9 @@ let test_tokens_php file =
 let test_parse_php xs  =
   let fullxs = Lib_parsing_php.find_source_files_of_dir_or_files xs in
 
-  let dirname_opt, fullxs = 
+  let dirname_opt, fullxs =
     match xs with
-    | [x] when Common2.is_directory x -> 
+    | [x] when Common2.is_directory x ->
       let skip_list =
         if Sys.file_exists (x ^ "/skip_list.txt")
         then Skip_code.load (x ^ "/skip_list.txt")
@@ -42,39 +42,39 @@ let test_parse_php xs  =
 
   Common2.check_stack_nbfiles (List.length fullxs);
 
-  fullxs +> Console.progress (fun k -> List.iter (fun file -> 
-     k ();
+  fullxs +> Console.progress (fun k -> List.iter (fun file ->
+      k ();
 
-    let (_xs, stat) = 
-      Common.save_excursion Flag_parsing_php.error_recovery true (fun () ->
-        Parse_php.parse file 
-      )
-    in
-    Common.push stat stat_list;
-    (*s: add stat for regression testing in hash *)
-        let s = spf "bad = %d" stat.Parse_info.bad in
-        if stat.Parse_info.bad = 0
-        then Hashtbl.add newscore file (Common2.Ok)
-        else Hashtbl.add newscore file (Common2.Pb s)
-        ;
-    (*e: add stat for regression testing in hash *)
-  ));
+      let (_xs, stat) =
+        Common.save_excursion Flag_parsing_php.error_recovery true (fun () ->
+            Parse_php.parse file
+          )
+      in
+      Common.push stat stat_list;
+      (*s: add stat for regression testing in hash *)
+      let s = spf "bad = %d" stat.Parse_info.bad in
+      if stat.Parse_info.bad = 0
+      then Hashtbl.add newscore file (Common2.Ok)
+      else Hashtbl.add newscore file (Common2.Pb s)
+      ;
+      (*e: add stat for regression testing in hash *)
+    ));
 
   Parse_info.print_parsing_stat_list !stat_list;
   (*s: print regression testing results *)
-    let score_path = Filename.concat Config_pfff.path "tmp" in
-    dirname_opt +> Common.do_option (fun dirname -> 
+  let score_path = Filename.concat Config_pfff.path "tmp" in
+  dirname_opt +> Common.do_option (fun dirname ->
       let dirname = Common.realpath dirname in
       pr2 "--------------------------------";
       pr2 "regression testing  information";
       pr2 "--------------------------------";
       let str = Str.global_replace (Str.regexp "/") "__" dirname in
-      Common2.regression_testing newscore 
+      Common2.regression_testing newscore
         (Filename.concat score_path
-         ("score_parsing__" ^str ^ "php.marshalled"))
+           ("score_parsing__" ^str ^ "php.marshalled"))
     );
-    ()
-  (*e: print regression testing results *)
+  ()
+(*e: print regression testing results *)
 (*e: test_parse_php *)
 (*****************************************************************************)
 (* Export *)
@@ -85,13 +85,13 @@ let test_parse_php xs  =
 (*e: test_sexp_php *)
 (*s: test_json_php *)
 (*
-let test_json_php file = 
+let test_json_php file =
   let ast = Parse_php.parse_program file in
   let s = Export_ast_php.json_string_of_program ast in
   pr s;
   ()
 
-let test_json_fast_php file = 
+let test_json_fast_php file =
   let ast = Parse_php.parse_program file in
   let s = Export_ast_php.json_string_of_program_fast ast in
   pr s;
@@ -105,31 +105,61 @@ let test_dump_php file =
   pr s
 
 (*****************************************************************************)
+(* Test *)
+(*****************************************************************************)
+let test_micro_clones ast =
+  let open Printf in
+  let open Ast_php in
+  let hooks =
+    { Visitor_php.default_visitor with
+      Visitor_php.kexpr = (fun (k,_) e ->
+          match e with
+          | Ast_php.Sc sc -> ()
+          | _ -> k e);
+
+      Visitor_php.kstmt = (fun (k,_) s ->
+          match s with
+          | If (tok,(_,(
+              Binary (IdVar (DName (v,_),_),b, Sc sclr2)),_),stmt,l,o) ->
+            let (!) = Parse_info.str_of_info in (* tok to string *)
+            printf "If : %s -- var: %s!\n%!" !tok v;
+            (match sclr2 with
+             | C (String (s,tok)) ->
+               printf " has constant: %s\n%!" s
+             | _ -> printf " no constant\n%!")
+          | _ -> k s)
+
+    } in
+  let visitor = Visitor_php.mk_visitor hooks in
+  visitor (Ast.Program ast)
+
+(*****************************************************************************)
 (* Misc *)
 (*****************************************************************************)
 (*s: test_visit_php *)
-let test_visit_php file = 
+let test_visit_php file =
   let ast = Parse_php.parse_program file in
+  test_micro_clones ast;
 
   let hooks = { Visitor_php.default_visitor with
-    Visitor_php.kinfo = (fun (_k, _) info ->
-      let s = Parse_info.str_of_info info in
-      pr2 s;
-    );
+                Visitor_php.kinfo = (fun (_k, _) tok ->
+                    let s = Parse_info.str_of_info tok in
+                    pr2 s;
+                  );
 
-    Visitor_php.kexpr = (fun (k, _) e -> 
-      match e with
-      | Ast_php.Sc _ ->
-          pr2 "scalar";
-          k e
-      | _ -> k e
-    );
-  } in
+                Visitor_php.kexpr = (fun (k, _) e ->
+                    match e with
+                    | Ast_php.Sc _ ->
+                      pr2 "scalar";
+                      k e
+                    | _ -> k e
+                  );
+              } in
   let visitor = Visitor_php.mk_visitor hooks in
   visitor (Ast.Program ast)
 (*e: test_visit_php *)
 
-let test_unparse_php file = 
+let test_unparse_php file =
   let (ast2, _stat) = Parse_php.parse file in
   let tmpfile = Common.new_temp_file "unparse_php" ".php" in
   let s = Unparse_php.string_of_program_with_comments_using_transfo ast2 in
@@ -138,18 +168,18 @@ let test_unparse_php file =
   xs +> List.iter pr2;
   ()
 
-let test_pretty_print_php file = 
+let test_pretty_print_php file =
   let _ast = Parse_php.parse_program file in
   raise Todo
-  (* Pretty_print_php.pretty_print_program ast *)
+(* Pretty_print_php.pretty_print_program ast *)
 
 (* note that pfff can now parse XHP files without calling xhpize *)
-let test_parse_xhp_with_xhpize file = 
+let test_parse_xhp_with_xhpize file =
   let pp_cmd = "xhpize" in
   let _ast = Parse_php.parse_program ~pp:(Some pp_cmd) file in
   raise Todo
 
-let test_parse_xdebug_expr s = 
+let test_parse_xdebug_expr s =
   let _e = Parse_php.xdebug_expr_of_string s in
   raise Todo
 
@@ -161,41 +191,41 @@ let test_parse_php_fast file =
 (*****************************************************************************)
 let actions () = [
   (*s: test_parsing_php actions *)
-    "-parse_php", "   <file or dir>", 
-    Common.mk_action_n_arg test_parse_php;
+  "-parse_php", "   <file or dir>",
+  Common.mk_action_n_arg test_parse_php;
   (*x: test_parsing_php actions *)
-    "-visit_php", "   <file>", 
-      Common.mk_action_1_arg test_visit_php;
+  "-visit_php", "   <file>",
+  Common.mk_action_1_arg test_visit_php;
   (*x: test_parsing_php actions *)
-    (* an alias for -sexp_php *)
+  (* an alias for -sexp_php *)
 (*
-    "-json", "   <file> export the AST of file into JSON", 
+    "-json", "   <file> export the AST of file into JSON",
       Common.mk_action_1_arg test_json_php;
-    "-json_fast", "   <file> export the AST of file into a compact JSON", 
+    "-json_fast", "   <file> export the AST of file into a compact JSON",
       Common.mk_action_1_arg test_json_fast_php;
 *)
   (*x: test_parsing_php actions *)
-    (* an alias for -sexp_php *)
-    "-dump_php", "   <file>", 
-    Common.mk_action_1_arg test_dump_php;
-    "-dump_php_ml", "   <file>", 
-    Common.mk_action_1_arg test_dump_php;
+  (* an alias for -sexp_php *)
+  "-dump_php", "   <file>",
+  Common.mk_action_1_arg test_dump_php;
+  "-dump_php_ml", "   <file>",
+  Common.mk_action_1_arg test_dump_php;
   (*x: test_parsing_php actions *)
   (*x: test_parsing_php actions *)
   (*x: test_parsing_php actions *)
-    "-tokens_php", "   <file>", 
-    Common.mk_action_1_arg test_tokens_php;
+  "-tokens_php", "   <file>",
+  Common.mk_action_1_arg test_tokens_php;
   (*e: test_parsing_php actions *)
 
-    "-parse_php_fast", "   <file>", 
-    Common.mk_action_1_arg test_parse_php_fast;
-    "-unparse_php", "   <file>", 
-    Common.mk_action_1_arg test_unparse_php;
-    "-pretty_print_php", "   <file>", 
-    Common.mk_action_1_arg test_pretty_print_php;
-    "-parse_xdebug_expr", "   <string>", 
-    Common.mk_action_1_arg test_parse_xdebug_expr;
-    "-parse_xhp_with_xhpize", "   <file>", 
-    Common.mk_action_1_arg test_parse_xhp_with_xhpize;
+  "-parse_php_fast", "   <file>",
+  Common.mk_action_1_arg test_parse_php_fast;
+  "-unparse_php", "   <file>",
+  Common.mk_action_1_arg test_unparse_php;
+  "-pretty_print_php", "   <file>",
+  Common.mk_action_1_arg test_pretty_print_php;
+  "-parse_xdebug_expr", "   <string>",
+  Common.mk_action_1_arg test_parse_xdebug_expr;
+  "-parse_xhp_with_xhpize", "   <file>",
+  Common.mk_action_1_arg test_parse_xhp_with_xhpize;
 ]
 (*e: test_parsing_php.ml *)
