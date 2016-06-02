@@ -152,25 +152,21 @@ let check_dups ll =
   List.iter (fun l ->
       List.map fst l |> fun l' ->
       List.sort_uniq String.compare l' |> fun l'' ->
-      if List.length l' > List.length l''
-      then
-        let l' = List.tl l' in
+      let l',ll' =
+        if List.length l' > List.length l''
+        then (List.tl l'),l''
+        else if List.length l' < List.length l''
+        then l',(List.tl l'')
+        else [],[] in
+      match (l',ll') with
+      | [],[] -> ()
+      | l',l'' ->
         let dup_var =
-          List.fold_left2 (fun acc x y -> if x <> y then x
-                            else acc) "" l' l'' in
+          List.fold_left2 (fun acc x y ->
+              if x <> y then x else acc) "" l' l'' in
         let (_,dup_tok) = List.find (fun (x,y) -> x = dup_var) l in
         let err_msg = err_msg_of_tok dup_tok in
-        printf "%s\n%!" err_msg
-      else if List.length l' < List.length l''
-      then
-        let l'' = List.tl l'' in
-        let dup_var =
-          List.fold_left2 (fun acc x y -> if x <> y then x
-                            else acc) "" l' l'' in
-        let (_,dup_tok) = List.find (fun (x,y) -> x = dup_var) l in
-        let err_msg = err_msg_of_tok dup_tok in
-        printf "%s\n%!" err_msg
-      else ()) ll
+        printf "%s\n%!" err_msg) ll
 
 let test_micro_clones_php file =
   let open Printf in
