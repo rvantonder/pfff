@@ -108,13 +108,17 @@ let test_dump_php file =
 (* Test *)
 (*****************************************************************************)
 
+let str_of_tok tok = Parse_info.str_of_info tok
+
 let print_lists ll =
   List.iter (fun l ->
       List.iter (fun (x,_) ->
           Printf.printf "%s\n%!" x) l;
       Printf.printf "~~~\n%!") ll
 
-let traverse_expr_tree exp =
+(* TODO: more than one dupliate in the same level breaks fold2.
+   How to handle other binops intermixed? *)
+let traverse_expr_tree exp for_op =
   let open Printf in
   let open Ast_php in
   let rec aux exp acc curr =
@@ -122,7 +126,6 @@ let traverse_expr_tree exp =
     | Binary (lhs,(op,op_tok),rhs) ->
       let lacc,lcurr = aux lhs acc curr in
       let racc,rcurr = aux rhs acc curr in
-      (* merge left and right accs and currs *)
       (lacc @ racc),(lcurr @ rcurr)
     | ParenExpr (_,nested_exp,_) ->
       (* start a new curr when we enter a parenth *)
@@ -130,6 +133,9 @@ let traverse_expr_tree exp =
       (* merge parenth, and return previous curr *)
       res_curr::res_acc,curr
     | IdVar (DName (v,v_tok),_) ->
+      acc,((v,v_tok)::curr)
+    | Call (Id (Self v_tok),_) ->
+      let v = str_of_tok v_tok in
       acc,((v,v_tok)::curr)
     | _ -> acc,curr
   in
@@ -172,8 +178,6 @@ let test_micro_clones_php file =
   let open Printf in
   let open Ast_php in
   let ast = Parse_php.parse_program file in
-  (*let (!) = Parse_info.str_of_info in (* tok to string *)*)
-
 
   let hooks =
     { Visitor_php.default_visitor with
@@ -185,8 +189,7 @@ let test_micro_clones_php file =
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
           | If (if_tok,(_,cond_exp,_),_,_,_) ->
-            (*check_cond if_tok exp;*)
-            let res = traverse_expr_tree cond_exp in check_dups res;
+            traverse_expr_tree cond_exp "&&" |> check_dups;
             k s
           | _ -> k s)
     } in
