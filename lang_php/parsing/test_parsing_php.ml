@@ -109,10 +109,7 @@ let test_dump_php file =
 (*****************************************************************************)
 
 (** TODO
-    1) How to check equality of methods/functions, when I can't find a
-    good "to string" method or a good compare function for 'terms'?
-    2) intermixed && and || buggy
-    2.5) Have to compare whole ast sub structures, not just the variables.
+    1) only one operator at a time.
     3) https://api.github.com/search/repositories?sort=stars&order=desc&q=language:php
 *)
 
@@ -127,41 +124,37 @@ let err_msg_of_tok tok =
     info.Parse_info.column
 
 let print_list l =
-  List.iter (fun (x,_,_) ->
-      Printf.printf "%s\n%!" x) l
+  List.iteri (fun i (x,_,_) ->
+      Printf.printf "%d: %s\n%!" i x) l
 
 let print_lists ll =
   List.iter (fun l ->
       print_list l;
       Printf.printf "~~~\n%!") ll
 
-(* TODO: more than one dupliate in the same level breaks fold2.
-   How to handle other binops intermixed? *)
 let traverse_expr_tree exp for_op =
   let open Printf in
   let open Ast_php in
+  let (!) = Export_ast_php.ml_pattern_string_of_expr in
   let rec aux exp acc curr =
     match exp with
-    | Binary (lhs,(op,op_tok),rhs) ->
+    | Binary (lhs,(Logical AndBool,op_tok),rhs)
+    | Binary (lhs,(Logical OrBool,op_tok),rhs) ->
       let lacc,lcurr = aux lhs acc curr in
       let racc,rcurr = aux rhs acc curr in
-      (lacc @ racc),(lcurr @ rcurr)
+      let curr = (!lhs,op_tok,!lhs)::(!rhs,op_tok,!rhs)::curr in
+      (lacc@racc),(lcurr@rcurr@curr)
     | ParenExpr (_,nested_exp,_) ->
       (* start a new curr when we enter a parenth *)
       let res_acc,res_curr = aux nested_exp acc [] in
       (* merge parenth, and return previous curr *)
       res_curr::res_acc,curr
-    | IdVar (DName (v,v_tok),_) as var_exp ->
-      acc,((v,v_tok,var_exp)::curr)
-    | Call (Id (Self v_tok),_) as call_exp ->
-      let v = str_of_tok v_tok in
-      acc,((v,v_tok,call_exp)::curr)
     | _ -> acc,curr
   in
   aux exp [] [] |> fun (acc,hd) ->
   (* don't forget to merge the last curr *)
   (hd::acc) |> fun res ->
-  print_lists res;
+  (*print_lists res;*)
   res
 
 let check_dups ll =
@@ -169,14 +162,24 @@ let check_dups ll =
   List.iter (fun l ->
       List.sort (fun (x,y,z) (x',y',z') -> String.compare x x') l
       |> fun l'' ->
+      (*printf "Debug: find dups in\n%!";
+        print_list l'';
+        printf "done\n%!";*)
       let rec find_dups lll acc = match lll with
         | [] | _::[] -> acc
         | ((a,_,_) as elt)::(b,_,_)::[] ->
+          (*printf "Comparing:\n%!";
+            printf "a: %s\n%!" a;
+            printf "b: %s\n%!" b;*)
           if a = b then elt::acc else acc
-        | ((a,_,_) as elt)::(b,_,_)::tl ->
+        | ((a,_,_) as elt)::((b,_,_)::_ as rest) ->
+          (*printf "Comparing:\n%!";
+            printf "a: %s\n%!" a;
+            printf "b: %s\n%!" b;*)
           if a = b then
-            find_dups tl (elt::acc)
-          else find_dups tl acc in
+            ((*printf "Yes, %s = %s\n%!" a b;*)
+              find_dups rest (elt::acc))
+          else find_dups rest acc in
       let dups = find_dups l'' [] in
       match dups with
       | [] -> ()
