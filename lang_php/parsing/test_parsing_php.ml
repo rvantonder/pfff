@@ -108,12 +108,31 @@ let test_dump_php file =
 (* Test *)
 (*****************************************************************************)
 
+(** TODO
+    1) How to check equality of methods/functions, when I can't find a
+    good "to string" method or a good compare function for 'terms'?
+    2) intermixed && and || buggy
+    2.5) Have to compare whole ast sub structures, not just the variables.
+    3) https://api.github.com/search/repositories?sort=stars&order=desc&q=language:php
+*)
+
 let str_of_tok tok = Parse_info.str_of_info tok
+
+let err_msg_of_tok tok =
+  Parse_info.token_location_of_info tok
+  |> fun info ->
+  Printf.sprintf
+    "%s:%d:%d" info.Parse_info.file
+    info.Parse_info.line
+    info.Parse_info.column
+
+let print_list l =
+  List.iter (fun (x,_,_) ->
+      Printf.printf "%s\n%!" x) l
 
 let print_lists ll =
   List.iter (fun l ->
-      List.iter (fun (x,_) ->
-          Printf.printf "%s\n%!" x) l;
+      print_list l;
       Printf.printf "~~~\n%!") ll
 
 (* TODO: more than one dupliate in the same level breaks fold2.
@@ -132,11 +151,11 @@ let traverse_expr_tree exp for_op =
       let res_acc,res_curr = aux nested_exp acc [] in
       (* merge parenth, and return previous curr *)
       res_curr::res_acc,curr
-    | IdVar (DName (v,v_tok),_) ->
-      acc,((v,v_tok)::curr)
-    | Call (Id (Self v_tok),_) ->
+    | IdVar (DName (v,v_tok),_) as var_exp ->
+      acc,((v,v_tok,var_exp)::curr)
+    | Call (Id (Self v_tok),_) as call_exp ->
       let v = str_of_tok v_tok in
-      acc,((v,v_tok)::curr)
+      acc,((v,v_tok,call_exp)::curr)
     | _ -> acc,curr
   in
   aux exp [] [] |> fun (acc,hd) ->
@@ -145,34 +164,26 @@ let traverse_expr_tree exp for_op =
   print_lists res;
   res
 
-let err_msg_of_tok tok =
-  Parse_info.token_location_of_info tok
-  |> fun info ->
-  Printf.sprintf
-    "%s:%d:%d" info.Parse_info.file
-    info.Parse_info.line
-    info.Parse_info.column
-
 let check_dups ll =
   let open Printf in
   List.iter (fun l ->
-      List.map fst l |> fun l' ->
-      List.sort_uniq String.compare l' |> fun l'' ->
-      let l',ll' =
-        if List.length l' > List.length l''
-        then (List.tl l'),l''
-        else if List.length l' < List.length l''
-        then l',(List.tl l'')
-        else [],[] in
-      match (l',ll') with
-      | [],[] -> ()
-      | l',l'' ->
-        let dup_var =
-          List.fold_left2 (fun acc x y ->
-              if x <> y then x else acc) "" l' l'' in
-        let (_,dup_tok) = List.find (fun (x,y) -> x = dup_var) l in
-        let err_msg = err_msg_of_tok dup_tok in
-        printf "%s\n%!" err_msg) ll
+      List.sort (fun (x,y,z) (x',y',z') -> String.compare x x') l
+      |> fun l'' ->
+      let rec find_dups lll acc = match lll with
+        | [] | _::[] -> acc
+        | ((a,_,_) as elt)::(b,_,_)::[] ->
+          if a = b then elt::acc else acc
+        | ((a,_,_) as elt)::(b,_,_)::tl ->
+          if a = b then
+            find_dups tl (elt::acc)
+          else find_dups tl acc in
+      let dups = find_dups l'' [] in
+      match dups with
+      | [] -> ()
+      | l -> List.iter (fun (x,dup_tok,z) ->
+          let err_msg = err_msg_of_tok dup_tok in
+          printf "%s\n%!" err_msg)
+          dups) ll
 
 let test_micro_clones_php file =
   let open Printf in
