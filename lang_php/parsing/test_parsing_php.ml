@@ -138,12 +138,22 @@ let traverse_expr_tree exp for_op =
   let (!) = Export_ast_php.ml_pattern_string_of_expr in
   let rec aux exp acc curr =
     match exp with
-    | Binary (lhs,(Logical AndBool,op_tok),rhs)
     | Binary (lhs,(Logical OrBool,op_tok),rhs) ->
+      (*| Binary (lhs,(Logical OrBool,op_tok),rhs) ->*)
+      (*printf "lhs: %s " !lhs;
+        printf "tok: %s " @@ str_of_tok op_tok;
+        printf "rhs: %s\n" !rhs;*)
       let lacc,lcurr = aux lhs acc curr in
       let racc,rcurr = aux rhs acc curr in
       let curr = (!lhs,op_tok,!lhs)::(!rhs,op_tok,!rhs)::curr in
       (lacc@racc),(lcurr@rcurr@curr)
+    | Binary (lhs,(_,op_tok),rhs) ->
+      (*printf "lhs: %s " !lhs;
+        printf "tok: %s " @@ str_of_tok op_tok;
+        printf "rhs: %s\n" !rhs;*)
+      let lacc,lcurr = aux lhs acc curr in
+      let racc,rcurr = aux rhs acc curr in
+      (lcurr::rcurr::lacc@racc@acc),[]
     | ParenExpr (_,nested_exp,_) ->
       (* start a new curr when we enter a parenth *)
       let res_acc,res_curr = aux nested_exp acc [] in
