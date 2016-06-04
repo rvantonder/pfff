@@ -173,7 +173,7 @@ let traverse_expr_tree exp for_op =
   aux exp [] [] |> fun (acc,hd) ->
   (* don't forget to merge the last curr *)
   (hd::acc) |> fun res ->
-  print_lists res;
+  (*print_lists res;*)
   res
 
 let check_dups ll =
@@ -222,8 +222,11 @@ let test_micro_clones_php file =
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
           | If (if_tok,(_,cond_exp,_),_,_,_) ->
-            (*traverse_expr_tree cond_exp "||" |> check_dups;*)
-            traverse_expr_tree cond_exp "&&" |> check_dups;
+            let rm_empty_lists =
+              List.filter (function | [] -> false | _ -> true) in
+            let f = traverse_expr_tree cond_exp in
+            f "||" |> rm_empty_lists |> check_dups;
+            f "&&" |> rm_empty_lists |> check_dups;
             k s
           | _ -> k s)
     } in
