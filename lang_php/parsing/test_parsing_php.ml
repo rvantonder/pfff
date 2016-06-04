@@ -136,29 +136,39 @@ let traverse_expr_tree exp for_op =
   let open Printf in
   let open Ast_php in
   let (!) = Export_ast_php.ml_pattern_string_of_expr in
+
   (* curr is the current subexpression. acc is the collection of all *)
   let rec aux exp acc curr =
+    let descend_and_merge lhs rhs op_tok = fun () ->
+      let lacc,lcurr = traverse_side lhs op_tok acc curr in
+      let racc,rcurr = traverse_side rhs op_tok acc curr in
+      (lacc@racc@acc),(lcurr@rcurr)
+    in
     match exp with
-    | Binary (lhs,(Logical OrBool,op_tok),rhs) ->
-      let _,lcurr =
-        match lhs with
-        | Binary (_,(Logical OrBool,_),_) ->
-          (* process left or *)
-          aux lhs acc curr
-        | _ -> acc,(!lhs,op_tok,!lhs)::curr in
-      let _,rcurr =
-        match rhs with
-        | Binary (_,(Logical OrBool,_),_) ->
-          (* process right or *)
-          aux rhs acc curr
-        | _ -> acc,(!rhs,op_tok,!rhs)::curr in
-      (acc),(lcurr@rcurr)
+    | Binary (lhs,(Logical OrBool,op_tok),rhs) when for_op = "||" ->
+      descend_and_merge lhs rhs op_tok ()
+    | Binary (lhs,(Logical AndBool,op_tok),rhs) when for_op = "&&" ->
+      descend_and_merge lhs rhs op_tok ()
     | Binary (lhs,(_,op_tok),rhs) ->
       (* see test4 for why we do this *)
       let lacc,disjoint_lcurr = aux lhs acc [] in
       let racc,disjoint_rcurr = aux rhs acc [] in
       (disjoint_lcurr::disjoint_rcurr::lacc@racc),[]
+    | ParenExpr (_,nested_exp,_) ->
+      (* a nested expression essentially means we visit it, but clear
+         curr. we merge the result of this visit (curr), and
+         anything collected in acc*)
+      let acc,curr = aux nested_exp acc [] in
+      (curr::acc),[]
     | _ -> acc,curr
+  and
+    traverse_side exp op_tok acc curr =
+    let descend = fun () -> aux exp acc curr in
+    match exp with
+    | Binary (_,(Logical OrBool,_),_) when for_op = "||" -> descend ()
+    | Binary (_,(Logical AndBool,_),_) when for_op = "&&" -> descend ()
+    | ParenExpr _ -> descend ()
+    | _ -> acc,(!exp,op_tok,!exp)::curr
   in
   aux exp [] [] |> fun (acc,hd) ->
   (* don't forget to merge the last curr *)
@@ -212,6 +222,7 @@ let test_micro_clones_php file =
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
           | If (if_tok,(_,cond_exp,_),_,_,_) ->
+            (*traverse_expr_tree cond_exp "||" |> check_dups;*)
             traverse_expr_tree cond_exp "&&" |> check_dups;
             k s
           | _ -> k s)
