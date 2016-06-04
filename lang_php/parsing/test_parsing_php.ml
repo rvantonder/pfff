@@ -154,9 +154,10 @@ let traverse_expr_tree exp for_op =
         | _ -> acc,(!rhs,op_tok,!rhs)::curr in
       (acc),(lcurr@rcurr)
     | Binary (lhs,(_,op_tok),rhs) ->
-      (* visit left and right and send up acc, curr should be
-         cleared *)
-      acc,curr
+      (* see test4 for why we do this *)
+      let lacc,disjoint_lcurr = aux lhs acc [] in
+      let racc,disjoint_rcurr = aux rhs acc [] in
+      (disjoint_lcurr::disjoint_rcurr::lacc@racc),[]
     | _ -> acc,curr
   in
   aux exp [] [] |> fun (acc,hd) ->
