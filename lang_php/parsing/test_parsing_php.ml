@@ -136,35 +136,33 @@ let traverse_expr_tree exp for_op =
   let open Printf in
   let open Ast_php in
   let (!) = Export_ast_php.ml_pattern_string_of_expr in
+  (* curr is the current subexpression. acc is the collection of all *)
   let rec aux exp acc curr =
     match exp with
     | Binary (lhs,(Logical OrBool,op_tok),rhs) ->
-      (*| Binary (lhs,(Logical OrBool,op_tok),rhs) ->*)
-      (*printf "lhs: %s " !lhs;
-        printf "tok: %s " @@ str_of_tok op_tok;
-        printf "rhs: %s\n" !rhs;*)
-      let lacc,lcurr = aux lhs acc curr in
-      let racc,rcurr = aux rhs acc curr in
-      let curr = (!lhs,op_tok,!lhs)::(!rhs,op_tok,!rhs)::curr in
-      (lacc@racc),(lcurr@rcurr@curr)
+      let _,lcurr =
+        match lhs with
+        | Binary (_,(Logical OrBool,_),_) ->
+          (* process left or *)
+          aux lhs acc curr
+        | _ -> acc,(!lhs,op_tok,!lhs)::curr in
+      let _,rcurr =
+        match rhs with
+        | Binary (_,(Logical OrBool,_),_) ->
+          (* process right or *)
+          aux rhs acc curr
+        | _ -> acc,(!rhs,op_tok,!rhs)::curr in
+      (acc),(lcurr@rcurr)
     | Binary (lhs,(_,op_tok),rhs) ->
-      (*printf "lhs: %s " !lhs;
-        printf "tok: %s " @@ str_of_tok op_tok;
-        printf "rhs: %s\n" !rhs;*)
-      let lacc,lcurr = aux lhs acc curr in
-      let racc,rcurr = aux rhs acc curr in
-      (lcurr::rcurr::lacc@racc@acc),[]
-    | ParenExpr (_,nested_exp,_) ->
-      (* start a new curr when we enter a parenth *)
-      let res_acc,res_curr = aux nested_exp acc [] in
-      (* merge parenth, and return previous curr *)
-      res_curr::res_acc,curr
+      (* visit left and right and send up acc, curr should be
+         cleared *)
+      acc,curr
     | _ -> acc,curr
   in
   aux exp [] [] |> fun (acc,hd) ->
   (* don't forget to merge the last curr *)
   (hd::acc) |> fun res ->
-  (*print_lists res;*)
+  print_lists res;
   res
 
 let check_dups ll =
