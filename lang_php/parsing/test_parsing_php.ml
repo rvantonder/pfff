@@ -132,6 +132,8 @@ let print_lists ll =
       print_list l;
       Printf.printf "~~~\n%!") ll
 
+(* TODO: if paren on both sides in descend and merge, and both sets to
+   curr, or something. see real-test/if-clone-test7 *)
 let traverse_expr_tree exp for_op =
   let open Printf in
   let open Ast_php in
@@ -148,6 +150,14 @@ let traverse_expr_tree exp for_op =
     | Binary (lhs,(Logical OrBool,op_tok),rhs) when for_op = "||" ->
       descend_and_merge lhs rhs op_tok ()
     | Binary (lhs,(Logical AndBool,op_tok),rhs) when for_op = "&&" ->
+      descend_and_merge lhs rhs op_tok ()
+    | Binary (lhs,(Logical OrLog,op_tok),rhs) when for_op = "or" ->
+      descend_and_merge lhs rhs op_tok ()
+    | Binary (lhs,(Logical AndLog,op_tok),rhs) when for_op = "and" ->
+      descend_and_merge lhs rhs op_tok ()
+    | Binary (lhs,(Arith Or,op_tok),rhs) when for_op = "|" ->
+      descend_and_merge lhs rhs op_tok ()
+    | Binary (lhs,(Arith And,op_tok),rhs) when for_op = "&" ->
       descend_and_merge lhs rhs op_tok ()
     | Binary (lhs,(_,op_tok),rhs) ->
       (* see test4 for why we do this *)
@@ -167,6 +177,10 @@ let traverse_expr_tree exp for_op =
     match exp with
     | Binary (_,(Logical OrBool,_),_) when for_op = "||" -> descend ()
     | Binary (_,(Logical AndBool,_),_) when for_op = "&&" -> descend ()
+    | Binary (_,(Logical OrLog,_),_) when for_op = "or" -> descend ()
+    | Binary (_,(Logical AndLog,_),_) when for_op = "and" -> descend ()
+    | Binary (_,(Arith Or,_),_) when for_op = "|" -> descend ()
+    | Binary (_,(Arith And,_),_) when for_op = "&" -> descend ()
     | ParenExpr _ -> descend ()
     | _ -> acc,(!exp,op_tok,!exp)::curr
   in
@@ -176,7 +190,7 @@ let traverse_expr_tree exp for_op =
   (*print_lists res;*)
   res
 
-let check_dups ll =
+let check_dups op ll =
   let open Printf in
   List.iter (fun l ->
       List.sort (fun (x,y,z) (x',y',z') -> String.compare x x') l
@@ -187,14 +201,8 @@ let check_dups ll =
       let rec find_dups lll acc = match lll with
         | [] | _::[] -> acc
         | ((a,_,_) as elt)::(b,_,_)::[] ->
-          (*printf "Comparing:\n%!";
-            printf "a: %s\n%!" a;
-            printf "b: %s\n%!" b;*)
           if a = b then elt::acc else acc
         | ((a,_,_) as elt)::((b,_,_)::_ as rest) ->
-          (*printf "Comparing:\n%!";
-            printf "a: %s\n%!" a;
-            printf "b: %s\n%!" b;*)
           if a = b then
             ((*printf "Yes, %s = %s\n%!" a b;*)
               find_dups rest (elt::acc))
@@ -204,7 +212,7 @@ let check_dups ll =
       | [] -> ()
       | l -> List.iter (fun (x,dup_tok,z) ->
           let err_msg = err_msg_of_tok dup_tok in
-          printf "%s\n%!" err_msg)
+          printf "%s:%s\n%!" op err_msg)
           dups) ll
 
 let test_micro_clones_php file =
@@ -221,12 +229,24 @@ let test_micro_clones_php file =
 
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
-          | If (if_tok,(_,cond_exp,_),_,_,_) ->
+          | If (if_tok,(_,cond_exp,_),_,elseifs,_) ->
+            let exps =
+              cond_exp::(List.map (fun ((_,(_,exp,_),_)) -> exp) elseifs) in
             let rm_empty_lists =
               List.filter (function | [] -> false | _ -> true) in
-            let f = traverse_expr_tree cond_exp in
-            f "||" |> rm_empty_lists |> check_dups;
-            f "&&" |> rm_empty_lists |> check_dups;
+            let f exp op =
+              traverse_expr_tree exp op |>
+              rm_empty_lists |>
+              check_dups op
+            in
+            List.iter (fun exp ->
+                f exp "||";
+                f exp "&&";
+                f exp "or";
+                f exp "and";
+                f exp "|";
+                f exp "&"
+              ) exps;
             k s
           | _ -> k s)
     } in
