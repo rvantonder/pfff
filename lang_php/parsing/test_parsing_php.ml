@@ -142,9 +142,16 @@ let traverse_expr_tree exp for_op =
   (* curr is the current subexpression. acc is the collection of all *)
   let rec aux exp acc curr =
     let descend_and_merge lhs rhs op_tok = fun () ->
+      let extra =
+        match lhs,rhs with
+        | ParenExpr _,ParenExpr _ ->
+          [(!lhs,op_tok,!lhs);(!rhs,op_tok,!rhs)]
+        | ParenExpr _,_ -> [(!lhs,op_tok,!lhs)]
+        | _,ParenExpr _ -> [(!rhs,op_tok,!rhs)]
+        | _ -> [] in
       let lacc,lcurr = traverse_side lhs op_tok acc curr in
       let racc,rcurr = traverse_side rhs op_tok acc curr in
-      (lacc@racc@acc),(lcurr@rcurr)
+      (lacc@racc@acc),(lcurr@rcurr@extra)
     in
     match exp with
     | Binary (lhs,(Logical OrBool,op_tok),rhs) when for_op = "||" ->
@@ -165,7 +172,7 @@ let traverse_expr_tree exp for_op =
       let racc,disjoint_rcurr = aux rhs acc [] in
       (disjoint_lcurr::disjoint_rcurr::lacc@racc),[]
     | ParenExpr (_,nested_exp,_) ->
-      (* a nested expression essentially means we visit it, but clear
+      (* *inside* a nested expression essentially means we visit it, but clear
          curr. we merge the result of this visit (curr), and
          anything collected in acc*)
       let acc,curr = aux nested_exp acc [] in
