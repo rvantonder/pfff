@@ -132,12 +132,104 @@ let print_lists ll =
       print_list l;
       Printf.printf "~~~\n%!") ll
 
+let (!) = Export_ast_php.ml_pattern_string_of_expr
+
+module M = struct
+  type symbol = Ast_php.expr * Ast_php.tok option (* parent tok *)
+  type bool_exp =
+    | Empty of bool_exp list
+    | Var of symbol
+    | And of bool_exp list
+    | Or  of bool_exp list
+
+  let to_string ?(z3=false) e =
+    let open Printf in
+    let rec to_string_exp =
+      function
+      | Or x -> sprintf "Or(%s)" @@ list_to_string x
+      | And x -> sprintf "And(%s)" @@ list_to_string x
+      | Var (e,_) ->
+        (match e with
+         | Ast_php.IdVar (Ast_php.DName(v,_),_) ->
+           if z3 then
+             sprintf "B('%s')" v
+           else
+             sprintf "%s" v
+         | _ -> "")
+      | Empty _ -> ""
+    and list_to_string (l : bool_exp list) : string =
+      List.fold_left (fun (c,acc) x ->
+          match c with
+          | 0 -> (c+1),(to_string_exp x)
+          | _ -> (c+1),(acc^", "^(to_string_exp x))) (0,"") l
+      |> snd
+    in
+    to_string_exp e
+end
+
+
+(** Rewrite directly nested Ors by flattening*)
+let bool_exp_of_php_exp exp =
+  let open Ast_php in
+  let rec aux exp parent_tok =
+    match exp with
+    | Binary (lhs,(Logical OrBool,op_tok),rhs) ->
+      M.Or [aux lhs (Some op_tok); aux rhs (Some op_tok)]
+    | Binary (lhs,(Logical AndBool,op_tok),rhs) ->
+      M.And [aux lhs (Some op_tok); aux rhs (Some op_tok)]
+    | x -> M.Var (x,parent_tok)
+  in aux exp None
+
+(** Should get applicative to flatten Or list *)
+
+let flatten_bool_exp exp =
+  let open M in
+  let open Printf in
+  let rec loop exp =
+    match exp with
+    | Or ((Or x)::next::rest) ->
+      let res = loop next in
+      Or (x@[res]@rest)
+    | Or ((Var x)::next::rest) ->
+      let res = loop next in
+      Or ([(Var x);res]@rest)
+    | Or (x::rest) ->
+      let res = loop x in
+      Or (res::rest)
+    | And ((And x)::next::rest) ->
+      let res = loop next in
+      And (x@[res]@rest)
+    | And ((Var x)::next::rest) ->
+      let res = loop next in
+      And ([(Var x);res]@rest)
+    | And (x::rest) ->
+      let res = loop x in
+      And (res::rest)
+    | And x -> And x
+    | Var x -> Var x
+    | _ -> M.Empty []
+  in loop exp
+
+let simplify exp =
+  let open Printf in
+  let bexp = bool_exp_of_php_exp exp in
+  printf "Before:\n%!";
+  printf "%s\n%!" @@ M.to_string ~z3:true bexp;
+  let rec fp bexp =
+    let bexp' = flatten_bool_exp bexp in
+    (*printf "1.%s\n%!" @@ M.to_string bexp;
+      printf "2.%s\n%!" @@ M.to_string bexp';*)
+    if bexp = bexp' then bexp else fp bexp' in
+  let final = fp bexp in
+  printf "After:\n%!";
+  printf "%s\n%!" @@ M.to_string final;
+  ()
+
 (* TODO: if paren on both sides in descend and merge, and both sets to
    curr, or something. see real-test/if-clone-test7 *)
 let traverse_expr_tree exp for_op =
   let open Printf in
   let open Ast_php in
-  let (!) = Export_ast_php.ml_pattern_string_of_expr in
 
   (* curr is the current subexpression. acc is the collection of all *)
   let rec aux exp acc curr =
@@ -197,31 +289,6 @@ let traverse_expr_tree exp for_op =
   (*print_lists res;*)
   res
 
-let check_dups op ll =
-  let open Printf in
-  List.iter (fun l ->
-      List.sort (fun (x,y,z) (x',y',z') -> String.compare x x') l
-      |> fun l'' ->
-      (*printf "Debug: find dups in\n%!";
-        print_list l'';
-        printf "done\n%!";*)
-      let rec find_dups lll acc = match lll with
-        | [] | _::[] -> acc
-        | ((a,_,_) as elt)::(b,_,_)::[] ->
-          if a = b then elt::acc else acc
-        | ((a,_,_) as elt)::((b,_,_)::_ as rest) ->
-          if a = b then
-            ((*printf "Yes, %s = %s\n%!" a b;*)
-              find_dups rest (elt::acc))
-          else find_dups rest acc in
-      let dups = find_dups l'' [] in
-      match dups with
-      | [] -> ()
-      | l -> List.iter (fun (x,dup_tok,z) ->
-          let err_msg = err_msg_of_tok dup_tok in
-          printf "%s:%s\n%!" op err_msg)
-          dups) ll
-
 let test_micro_clones_php file =
   let open Printf in
   let open Ast_php in
@@ -237,23 +304,7 @@ let test_micro_clones_php file =
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
           | If (if_tok,(_,cond_exp,_),_,elseifs,_) ->
-            let exps =
-              cond_exp::(List.map (fun ((_,(_,exp,_),_)) -> exp) elseifs) in
-            let rm_empty_lists =
-              List.filter (function | [] -> false | _ -> true) in
-            let f exp op =
-              traverse_expr_tree exp op |>
-              rm_empty_lists |>
-              check_dups op
-            in
-            List.iter (fun exp ->
-                f exp "||";
-                f exp "&&";
-                f exp "or";
-                f exp "and";
-                f exp "|";
-                f exp "&"
-              ) exps;
+            simplify cond_exp;
             k s
           | _ -> k s)
     } in
