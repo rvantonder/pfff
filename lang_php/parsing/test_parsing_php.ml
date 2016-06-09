@@ -180,32 +180,57 @@ let bool_exp_of_php_exp exp =
 
 (** Should get applicative to flatten Or list *)
 
+(*let walk_or exp =
+  let open M in
+  let open Printf in
+  let rec walk exp =
+    match exp with
+    | Or x ->*)
+
+
 let flatten_bool_exp exp =
   let open M in
   let open Printf in
-  let rec loop exp =
+  let rec flatten exp =
+    printf "Current: %s\n%!" @@ to_string exp;
+    match exp with
+    | Or l ->
+      Or (List.fold_left (fun acc x ->
+          match x with
+          | Or x -> x@acc
+          | Var _ as e -> acc@[e]
+          | And _ as e -> acc@[flatten e]) [] l)
+    | And l ->
+      And (List.fold_left (fun acc x ->
+          match x with
+          | And x -> x@acc
+          | Var _ as e -> acc@[e]
+          | Or _ as e -> acc@[flatten e]) [] l)
+    | x -> x in
+  flatten exp
+
+(*
     match exp with
     | Or ((Or x)::next::rest) ->
-      let res = loop next in
+      let res = flatten next in
       Or (x@[res]@rest)
     | Or ((Var x)::next::rest) ->
-      let res = loop next in
+      let res = flatten next in
       Or ([Var x;res]@rest)
     | Or (x::rest) ->
-      printf "loop: %s\n%!" @@ to_string x;
-      let res = loop x in
+      let res = flatten x in
       Or (res::rest)
     | And ((And x)::next::rest) ->
-      let res = loop next in
+      let res = flatten next in
       And (x@[res]@rest)
     | And ((Var x)::next::rest) ->
-      let res = loop next in
+      let res = flatten next in
       And ([Var x;res]@rest)
     | And (x::rest) ->
-      let res = loop x in
+      let res = flatten x in
       And (res::rest)
     | x -> x
-  in loop exp
+  in flatten exp*)
 
 let simplify exp =
   let open Printf in
