@@ -137,7 +137,6 @@ let (!) = Export_ast_php.ml_pattern_string_of_expr
 module M = struct
   type symbol = Ast_php.expr * Ast_php.tok option (* parent tok *)
   type bool_exp =
-    | Empty of bool_exp list
     | Var of symbol
     | And of bool_exp list
     | Or  of bool_exp list
@@ -155,8 +154,7 @@ module M = struct
              sprintf "B('%s')" v
            else
              sprintf "%s" v
-         | _ -> "")
-      | Empty _ -> ""
+         | x -> sprintf "%s" !x)
     and list_to_string (l : bool_exp list) : string =
       List.fold_left (fun (c,acc) x ->
           match c with
@@ -192,8 +190,9 @@ let flatten_bool_exp exp =
       Or (x@[res]@rest)
     | Or ((Var x)::next::rest) ->
       let res = loop next in
-      Or ([(Var x);res]@rest)
+      Or ([Var x;res]@rest)
     | Or (x::rest) ->
+      printf "loop: %s\n%!" @@ to_string x;
       let res = loop x in
       Or (res::rest)
     | And ((And x)::next::rest) ->
@@ -201,13 +200,11 @@ let flatten_bool_exp exp =
       And (x@[res]@rest)
     | And ((Var x)::next::rest) ->
       let res = loop next in
-      And ([(Var x);res]@rest)
+      And ([Var x;res]@rest)
     | And (x::rest) ->
       let res = loop x in
       And (res::rest)
-    | And x -> And x
-    | Var x -> Var x
-    | _ -> M.Empty []
+    | x -> x
   in loop exp
 
 let simplify exp =
