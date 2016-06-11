@@ -188,15 +188,7 @@ let bool_exp_of_php_exp exp =
 
 (** Should get applicative to flatten Or list *)
 
-(** Or(Or(a,a),a) -> Or(a,a,a) *)
-(*
-  let flatten list =
-    let rec aux acc = function
-      | [] -> acc
-      | One x :: t -> aux (x :: acc) t
-      | Many l :: t -> aux (aux acc l) t in
-    List.rev (aux [] list);;
-*)
+
 let flatten_bool_exp exp =
   let open M in
   let open Printf in
@@ -218,12 +210,25 @@ let flatten_bool_exp exp =
     | x -> x in
   flatten exp
 
+(** Or(Or(a,a),a) -> Or(a,a,a) *)
+(**flatten [ One "a" ; Many [ One "b" ; Many [ One "c" ; One "d" ] ; *)
+(**One "e" ] ];;*)
+(*
+  let flatten list =
+    let rec aux acc = function
+      | [] -> acc
+      | One x :: t -> aux (x :: acc) t
+      | Many l :: t -> aux (aux acc l) t in
+    List.rev (aux [] list);;
+*)
+
 let rule_dedup (dedup_exps : M.bool_exp list) =
   let (!) = M.to_string in
   List.sort (fun exp1 exp2 -> String.compare !exp1 !exp2) dedup_exps
   |> fun l ->
   let rec dedup = function
-    | x1 :: (x2 :: _ as rest) -> if (M.to_string x1) = (M.to_string x2) then dedup rest
+    | x1 :: (x2 :: _ as rest) ->
+      if (M.to_string x1) = (M.to_string x2) then dedup rest
       else x1::dedup rest
     | x -> x in
   let d = dedup l in d
