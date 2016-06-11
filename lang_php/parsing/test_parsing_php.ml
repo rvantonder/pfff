@@ -169,25 +169,34 @@ end
 (** Rewrite directly nested Ors by flattening*)
 let bool_exp_of_php_exp exp =
   let open Ast_php in
+  let open Printf in
   let rec aux exp parent_tok =
     match exp with
     | Binary (lhs,(Logical OrBool,op_tok),rhs) ->
       M.Or [aux lhs (Some op_tok); aux rhs (Some op_tok)]
     | Binary (lhs,(Logical AndBool,op_tok),rhs) ->
       M.And [aux lhs (Some op_tok); aux rhs (Some op_tok)]
+    | ParenExpr (_,exp,_) as x ->
+      (match parent_tok with
+       | Some tok when str_of_tok tok = "||" ->
+         M.Or [aux exp parent_tok]
+       | Some tok when str_of_tok tok = "&&" ->
+         M.And [aux exp parent_tok]
+       | _ -> M.Var (x,parent_tok))
     | x -> M.Var (x,parent_tok)
   in aux exp None
 
 (** Should get applicative to flatten Or list *)
 
-(*let walk_or exp =
-  let open M in
-  let open Printf in
-  let rec walk exp =
-    match exp with
-    | Or x ->*)
-
-
+(** Or(Or(a,a),a) -> Or(a,a,a) *)
+(*
+  let flatten list =
+    let rec aux acc = function
+      | [] -> acc
+      | One x :: t -> aux (x :: acc) t
+      | Many l :: t -> aux (aux acc l) t in
+    List.rev (aux [] list);;
+*)
 let flatten_bool_exp exp =
   let open M in
   let open Printf in
@@ -209,28 +218,46 @@ let flatten_bool_exp exp =
     | x -> x in
   flatten exp
 
-(*
+let rule_dedup (dedup_exps : M.bool_exp list) =
+  let (!) = M.to_string in
+  List.sort (fun exp1 exp2 -> String.compare !exp1 !exp2) dedup_exps
+  |> fun l ->
+  let rec dedup = function
+    | x1 :: (x2 :: _ as rest) -> if (M.to_string x1) = (M.to_string x2) then dedup rest
+      else x1::dedup rest
+    | x -> x in
+  let d = dedup l in d
+
+(** Or([And(b,c)]) -> And(b,c)
+    Or([Var x]) -> Var x*)
+let rule_simple =
+  let open M in
+  let open Printf in
+  function
+  | Or (x::[]) -> x
+  | And (x::[]) -> x
+  | x -> x
+
+(**
+   Descend down list of parent, perform deduplication, then simplify.
+   If the parent can be simplified after these rewrites, do it. One
+   pass should be enough. *)
+let rewrite exp =
+  let open M in
+  let open Printf in
+  let rec aux exp =
     match exp with
-    | Or ((Or x)::next::rest) ->
-      let res = flatten next in
-      Or (x@[res]@rest)
-    | Or ((Var x)::next::rest) ->
-      let res = flatten next in
-      Or ([Var x;res]@rest)
-    | Or (x::rest) ->
-      let res = flatten x in
-      Or (res::rest)
-    | And ((And x)::next::rest) ->
-      let res = flatten next in
-      And (x@[res]@rest)
-    | And ((Var x)::next::rest) ->
-      let res = flatten next in
-      And ([Var x;res]@rest)
-    | And (x::rest) ->
-      let res = flatten x in
-      And (res::rest)
-    | x -> x
-  in flatten exp*)
+    | And x -> And (List.map aux x
+                    |> rule_dedup
+                    |> List.map rule_simple)
+               |> rule_simple
+    | Or x ->
+      Or (List.map aux x
+          |> rule_dedup
+          |> List.map rule_simple)
+      |> rule_simple
+    | x -> x in
+  aux exp
 
 let simplify exp =
   let open Printf in
@@ -239,77 +266,16 @@ let simplify exp =
   printf "%s\n%!" @@ M.to_string ~z3:true bexp;
   let rec fp bexp =
     let bexp' = flatten_bool_exp bexp in
-    (*printf "1.%s\n%!" @@ M.to_string bexp;
-      printf "2.%s\n%!" @@ M.to_string bexp';*)
+    printf "1.%s\n%!" @@ M.to_string bexp;
+    printf "2.%s\n%!" @@ M.to_string bexp';
     if bexp = bexp' then bexp else fp bexp' in
-  let final = fp bexp in
+  let flat_exp = fp bexp in
   printf "After:\n%!";
-  printf "%s\n%!" @@ M.to_string final;
+  printf "%s\n%!" @@ M.to_string flat_exp;
+  let final' = rewrite flat_exp in
+  printf "FINAL:\n%!";
+  printf "%s\n%!" @@ M.to_string final';
   ()
-
-(* TODO: if paren on both sides in descend and merge, and both sets to
-   curr, or something. see real-test/if-clone-test7 *)
-let traverse_expr_tree exp for_op =
-  let open Printf in
-  let open Ast_php in
-
-  (* curr is the current subexpression. acc is the collection of all *)
-  let rec aux exp acc curr =
-    let descend_and_merge lhs rhs op_tok = fun () ->
-      let extra =
-        match lhs,rhs with
-        | ParenExpr _,ParenExpr _ ->
-          [(!lhs,op_tok,!lhs);(!rhs,op_tok,!rhs)]
-        | ParenExpr _,_ -> [(!lhs,op_tok,!lhs)]
-        | _,ParenExpr _ -> [(!rhs,op_tok,!rhs)]
-        | _ -> [] in
-      let lacc,lcurr = traverse_side lhs op_tok acc curr in
-      let racc,rcurr = traverse_side rhs op_tok acc curr in
-      (lacc@racc@acc),(lcurr@rcurr@extra)
-    in
-    match exp with
-    | Binary (lhs,(Logical OrBool,op_tok),rhs) when for_op = "||" ->
-      descend_and_merge lhs rhs op_tok ()
-    | Binary (lhs,(Logical AndBool,op_tok),rhs) when for_op = "&&" ->
-      descend_and_merge lhs rhs op_tok ()
-    | Binary (lhs,(Logical OrLog,op_tok),rhs) when for_op = "or" ->
-      descend_and_merge lhs rhs op_tok ()
-    | Binary (lhs,(Logical AndLog,op_tok),rhs) when for_op = "and" ->
-      descend_and_merge lhs rhs op_tok ()
-    | Binary (lhs,(Arith Or,op_tok),rhs) when for_op = "|" ->
-      descend_and_merge lhs rhs op_tok ()
-    | Binary (lhs,(Arith And,op_tok),rhs) when for_op = "&" ->
-      descend_and_merge lhs rhs op_tok ()
-    | Binary (lhs,(_,op_tok),rhs) ->
-      (* see test4 for why we do this *)
-      let lacc,disjoint_lcurr = aux lhs acc [] in
-      let racc,disjoint_rcurr = aux rhs acc [] in
-      (disjoint_lcurr::disjoint_rcurr::lacc@racc),[]
-    | ParenExpr (_,nested_exp,_) ->
-      (* *inside* a nested expression essentially means we visit it, but clear
-         curr. we merge the result of this visit (curr), and
-         anything collected in acc*)
-      let acc,curr = aux nested_exp acc [] in
-      (curr::acc),[]
-    | _ -> acc,curr
-  and
-    traverse_side exp op_tok acc curr =
-    let descend = fun () -> aux exp acc curr in
-    match exp with
-    | Binary (_,(Logical OrBool,_),_) when for_op = "||" -> descend ()
-    | Binary (_,(Logical AndBool,_),_) when for_op = "&&" -> descend ()
-    | Binary (_,(Logical OrLog,_),_) when for_op = "or" -> descend ()
-    | Binary (_,(Logical AndLog,_),_) when for_op = "and" -> descend ()
-    | Binary (_,(Arith Or,_),_) when for_op = "|" -> descend ()
-    | Binary (_,(Arith And,_),_) when for_op = "&" -> descend ()
-    | ParenExpr _ -> descend ()
-    | _ -> acc,(!exp,op_tok,!exp)::curr
-  in
-  aux exp [] [] |> fun (acc,hd) ->
-  (* don't forget to merge the last curr *)
-  (hd::acc) |> fun res ->
-  (*print_lists res;*)
-  res
 
 let test_micro_clones_php file =
   let open Printf in
@@ -396,12 +362,12 @@ let actions () = [
   Common.mk_action_1_arg test_visit_php;
   (*x: test_parsing_php actions *)
   (* an alias for -sexp_php *)
-(*
+    (*
     "-json", "   <file> export the AST of file into JSON",
-      Common.mk_action_1_arg test_json_php;
+    Common.mk_action_1_arg test_json_php;
     "-json_fast", "   <file> export the AST of file into a compact JSON",
-      Common.mk_action_1_arg test_json_fast_php;
-*)
+    Common.mk_action_1_arg test_json_fast_php;
+ *)
   (*x: test_parsing_php actions *)
   (* an alias for -sexp_php *)
   "-dump_php", "   <file>",
