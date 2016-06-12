@@ -186,41 +186,34 @@ let bool_exp_of_php_exp exp =
     | x -> M.Var (x,parent_tok)
   in aux exp None
 
-(** Should get applicative to flatten Or list *)
-
-
+(** Do flatten_or bottom up: accumulate after calling recursive.
+    Look at "counting nodes in a tree" to understand this well.
+    Descending down the tree is with recursive call. fold left
+    accumulator is "lateral" level accumulation*)
 let flatten_bool_exp exp =
   let open M in
   let open Printf in
-  let rec flatten exp =
-    printf "Current: %s\n%!" @@ to_string exp;
-    match exp with
+  let rec aux (l : bool_exp) : bool_exp =
+    match l with
     | Or l ->
-      Or (List.fold_left (fun acc x ->
-          match x with
-          | Or x -> x@acc
-          | Var _ as e -> acc@[e]
-          | And _ as e -> acc@[flatten e]) [] l)
+      List.fold_right (fun x (Or l) ->
+          printf "Visiting %s\n" @@ to_string x;
+          let res = aux x in (* go deeper, first! *)
+          printf "Res: %s\n" @@ to_string res;
+          match res with
+          | Or t -> Or (t@l) (* if it's an Or (inside this Or), unbox it*)
+          | x -> Or (x::l)) (* anything else, add *)
+        l (Or [])
     | And l ->
-      And (List.fold_left (fun acc x ->
-          match x with
-          | And x -> x@acc
-          | Var _ as e -> acc@[e]
-          | Or _ as e -> acc@[flatten e]) [] l)
-    | x -> x in
-  flatten exp
-
-(** Or(Or(a,a),a) -> Or(a,a,a) *)
-(**flatten [ One "a" ; Many [ One "b" ; Many [ One "c" ; One "d" ] ; *)
-(**One "e" ] ];;*)
-(*
-  let flatten list =
-    let rec aux acc = function
-      | [] -> acc
-      | One x :: t -> aux (x :: acc) t
-      | Many l :: t -> aux (aux acc l) t in
-    List.rev (aux [] list);;
-*)
+      List.fold_right (fun x (And l) ->
+          printf "Visiting %s\n" @@ to_string x;
+          let res = aux x in
+          printf "Res: %s\n" @@ to_string res;
+          match res with
+          | And t -> And (t@l)
+          | x -> And (x::l)) l (And [])
+    | x -> x
+  in aux exp
 
 let rule_dedup (dedup_exps : M.bool_exp list) =
   let (!) = M.to_string in
@@ -252,10 +245,11 @@ let rewrite exp =
   let open Printf in
   let rec aux exp =
     match exp with
-    | And x -> And (List.map aux x
-                    |> rule_dedup
-                    |> List.map rule_simple)
-               |> rule_simple
+    | And x ->
+      And (List.map aux x
+           |> rule_dedup
+           |> List.map rule_simple)
+      |> rule_simple
     | Or x ->
       Or (List.map aux x
           |> rule_dedup
@@ -269,12 +263,8 @@ let simplify exp =
   let bexp = bool_exp_of_php_exp exp in
   printf "Before:\n%!";
   printf "%s\n%!" @@ M.to_string ~z3:true bexp;
-  let rec fp bexp =
-    let bexp' = flatten_bool_exp bexp in
-    printf "1.%s\n%!" @@ M.to_string bexp;
-    printf "2.%s\n%!" @@ M.to_string bexp';
-    if bexp = bexp' then bexp else fp bexp' in
-  let flat_exp = fp bexp in
+  printf "%s\n%!" @@ M.to_string bexp;
+  let flat_exp = flatten_bool_exp bexp in
   printf "After:\n%!";
   printf "%s\n%!" @@ M.to_string flat_exp;
   let final' = rewrite flat_exp in
