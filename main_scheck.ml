@@ -388,11 +388,11 @@ let main_action xs =
      * infer PHP_ROOT? or take a --php_root?
     *)
     let an_arg = List.hd xs +> Common2.relative_to_absolute in
-    let root =
-      try Git.find_root_from_absolute_path an_arg
-      with Not_found -> "/"
-    in
-    pr (spf "using %s for php_root" root);
+    let root = "/" in
+    (*  try Git.find_root_from_absolute_path an_arg
+        with Not_found -> "/"
+        in
+        pr (spf "using %s for php_root" root);*)
     let env = Env_php.mk_env root in
 
     let (find_entity, graph_opt) =
