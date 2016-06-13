@@ -1,4 +1,5 @@
 ./configure --prefix=/home/vagrant/pfff-cust 
+make depend
 make
 make opt
 make install

@@ -273,6 +273,10 @@ let check ast =
           match s with
           | If (if_tok,(_,cond_exp,_),_,elseifs,_) ->
             simplify cond_exp;
+            let exps =
+              cond_exp::(List.map (fun ((_,(_,exp,_),_)) -> exp) elseifs)
+            in
+            List.iter simplify exps;
             k s
           | _ -> k s)
     } in
