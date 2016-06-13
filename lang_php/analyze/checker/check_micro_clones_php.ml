@@ -19,7 +19,9 @@ module Bexp : sig
     | LL_and of t list
     | LL_or of t list
 
-  val apply_children : (t list -> t list) -> t -> t
+  val map_children : (t list -> t list) -> t -> t
+
+  val apply_children : (t list -> 'b option) -> t -> 'b option
 
   val to_string : ?z3:bool -> t -> string
 end = struct
@@ -34,7 +36,7 @@ end = struct
     | LL_or of t list
 
 
-  let apply_children (f : 'a -> 'b) (e : t) : t =
+  let map_children (f: t list -> t list) (e : t) : t =
     match e with
     | And exps -> And (f exps)
     | Or exps -> Or (f exps)
@@ -43,6 +45,16 @@ end = struct
     | LL_or exps -> LL_or (f exps)
     | LL_and exps -> LL_and (f exps)
     | x -> x
+
+  let apply_children (f: t list -> 'b option) (e : t) : 'b option =
+    match e with
+    | And exps -> f exps
+    | Or exps -> f exps
+    | L_or exps -> f exps
+    | L_and exps -> f exps
+    | LL_or exps -> f exps
+    | LL_and exps -> f exps
+    | x -> None
 
   let to_string ?(z3=false) e =
     let open Printf in
@@ -163,8 +175,9 @@ let print_error ?(v=false) exp =
   match res with
   | Some (dup_var,Some parent_tok) ->
     let err_msg = err_msg_of_tok parent_tok in
-    if v then printf " %s:%s\n%!" err_msg !dup_var
-    else printf " %s:\n%!" err_msg
+    let err_tok = str_of_tok parent_tok in
+    if v then printf " %s:%s:%s\n%!" err_tok err_msg !dup_var
+    else printf " %s:%s\n%!" err_tok err_msg
   | _ -> ()
 
 let compare exp1 exp2 =
@@ -183,12 +196,20 @@ let rule_dedup ?(v=true) (dedup_exp : Bexp.t) =
       else x1::(dedup rest)
     | x -> x in
   let f l = dedup @@ List.sort compare l in
-  Bexp.apply_children f dedup_exp
+  Bexp.map_children f dedup_exp
 
 (**
    Unbox if there is only one expression in the list of a bool exp
    Or([And([Var "b";Var "c"])]) -> And([Var "b"; Var "c"])
    Or([Var x]) -> Var x
+
+   Bexp.apply_children (fun l ->
+      match l with
+      | (x::[]) -> Some x
+      | x -> None) exp
+   |> function
+   | Some res -> res
+   | None -> exp
 *)
 let rule_simple ?(v=false) =
   function
