@@ -186,17 +186,13 @@ let compare exp1 exp2 =
 (**
    Or([Var "a"; Var "b"; Var "a"]) -> Or([Var "a"; Var "b"])
 *)
-let rule_dedup ?(v=true) (dedup_exp : Bexp.t) =
+let rule_dedup ?(v=true) exp =
   let (!) = to_string in
-  let rec dedup = function
-    | x1 :: (x2 :: _ as rest) ->
-      if !x1 = !x2 then
-        (print_error x1;
-         dedup rest)
-      else x1::(dedup rest)
-    | x -> x in
-  let f l = dedup @@ List.sort compare l in
-  Bexp.map_children f dedup_exp
+  let dedup l =
+    List.fold_right (fun x acc ->
+        if List.exists (fun y -> !x = !y) acc
+        then acc else x::acc) l [] in
+  Bexp.map_children dedup exp
 
 (**
    Unbox if there is only one expression in the list of a bool exp
