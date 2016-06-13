@@ -61,23 +61,27 @@ let check_file ?(verbose=true) ?(find_entity=None) env file =
        * though when variables are passed by reference but it's better than
        * nothing.
       *)
-      Check_variables_php.check_and_annotate_program find_entity ast;
+      (**
+         Check_variables_php.check_and_annotate_program find_entity ast;
 
-      Check_includes_php.check env file ast;
-      Check_cfg_php.check_program ast;
-      (* not ready yet: Check_dfg_php.check_program ?find_entity ast; *)
-      Check_misc_php.check ast;
-      Check_lint_php.check ast;
+         Check_includes_php.check env file ast;
+         Check_cfg_php.check_program ast;
+         (* not ready yet: Check_dfg_php.check_program ?find_entity ast; *)
+         Check_misc_php.check ast;
+         Check_lint_php.check ast;
+      *)
       Check_micro_clones_php.check ast;
 
-      (* work only when have a find_entity; requires a global view of the code *)
-      find_entity +> Common.do_option (fun find_entity ->
+      (**
+         (* work only when have a find_entity; requires a global view of the code *)
+         find_entity +> Common.do_option (fun find_entity ->
           Check_functions_php.check_program find_entity ast;
           Check_classes_php.check_program   find_entity ast;
           (* could have a Check_typedefs_php.check_program but hack will
            * already check the important things so no point doing redundant
            * checks.
           *)
-        );
+         );
+      *)
       ()
     )
