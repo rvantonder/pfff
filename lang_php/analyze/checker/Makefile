@@ -11,7 +11,8 @@ SRC= \
   check_lint_php.ml \
   check_misc_php.ml \
   check_variables_php.ml \
-  check_cfg_php.ml
+  check_cfg_php.ml \
+  check_micro_clones_php.ml \
 #  check_dfg_php.ml \
 
 # use some global analysis via entity_finder
@@ -71,6 +72,7 @@ EXPORTSRC=\
   check_lint_php.mli \
   check_misc_php.mli \
   check_variables_php.mli \
+  check_micro_clones_php.mli \
   error_php.mli \
   layer_checker_php.mli \
   suggest_fix_php.mli \
