@@ -4,7 +4,6 @@
 module Ast = Ast_php
 open Printf
 
-let (!) = Export_ast_php.ml_pattern_string_of_expr
 let str_of_tok tok = Parse_info.str_of_info tok
 
 module Boolean : sig
@@ -43,12 +42,12 @@ end = struct
       List (op,[x;y])
 
   module Lang = struct
-    let (&&) op1 op2 = make Or op1 op2
-    let (||) op1 op2 = make And op1 op2
-    let (+&&) op1 op2 = make LOr op1 op2
-    let (+||) op1 op2 = make LAnd op1 op2
-    let (+&) op1 op2 = make AOr op1 op2
-    let (+|) op1 op2 = make AAnd op1 op2
+    let (&&) op1 op2 = make And op1 op2
+    let (||) op1 op2 = make Or op1 op2
+    let (+&&) op1 op2 = make LAnd op1 op2
+    let (+||) op1 op2 = make LOr op1 op2
+    let (+&) op1 op2 = make AAnd op1 op2
+    let (+|) op1 op2 = make AOr op1 op2
     let v x = Atom x
   end
 end
@@ -66,7 +65,7 @@ let op_to_string = function
   | AAnd -> "AAnd"
 
 let to_string exp =
-  let (!) = Export_ast_php.ml_pattern_string_of_expr in
+  let (!) = Unparse_php.string_of_expr in
   let rec exp_to_string =
     function
     | Atom (Ast_php.IdVar (Ast_php.DName(v,_),_),_) -> sprintf "%s" v
@@ -112,7 +111,8 @@ let err_msg_of_tok tok =
     info.Parse_info.column
 
 (** Find the first var and use that. [v] is for the actual statement *)
-let print_error ?(v=false) exp =
+let print_error ?(v=true) exp =
+  let (!) = Unparse_php.string_of_expr in
   let res  =
     let rec aux = function
       | Atom x -> Some x
@@ -161,13 +161,15 @@ let bur_map f (exp : s Boolean.t) : s Boolean.t =
 
 let simplify ?(v=false) exp =
   let exp' = bool_exp_of_php_exp exp in
-  if v then
-    (printf "\n[+] Exp:\n%!";
-     printf "%s\n%!" @@ to_string exp');
   let exp'' = bur_map rule_dedup exp' in
   if v then
-    (printf "\n[+] Exp':\n%!";
-     printf "%s\n%!" @@ to_string exp'')
+    let s' = to_string exp' in
+    let s'' = to_string exp'' in
+    if s' <> s'' then
+      (printf "\n[+] Exp:\n\n\t%s\n" s';
+       printf "\ncan be simplified:\n\n\t%s\n" s'')
+    else
+      printf "\n[+] Exp:\n\n\t%s\n" s'
 
 let check ast =
   let open Ast in
