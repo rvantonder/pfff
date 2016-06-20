@@ -8,7 +8,7 @@ let (!) = Export_ast_php.ml_pattern_string_of_expr
 let str_of_tok tok = Parse_info.str_of_info tok
 
 module Boolean : sig
-  type op = And | Or
+  type op = And | Or | LOr | LAnd | AOr | AAnd
 
   type 'a t = private
     | Atom of 'a
@@ -17,12 +17,16 @@ module Boolean : sig
   val make : op -> 'a t -> 'a t -> 'a t
 
   module Lang : sig
-    val (||) : 'a t -> 'a t -> 'a t
     val (&&) : 'a t -> 'a t -> 'a t
+    val (||) : 'a t -> 'a t -> 'a t
+    val (+&&) : 'a t -> 'a t -> 'a t
+    val (+||) : 'a t -> 'a t -> 'a t
+    val (+&) : 'a t -> 'a t -> 'a t
+    val (+|) : 'a t -> 'a t -> 'a t
     val v : 'a -> 'a t
   end
 end = struct
-  type op = And | Or
+  type op = And | Or | LOr | LAnd | AOr | AAnd
   type 'a t =
     | Atom of 'a
     | List of op * 'a t list
@@ -39,8 +43,12 @@ end = struct
       List (op,[x;y])
 
   module Lang = struct
-    let (||) op1 op2 = make Or op1 op2
-    let (&&) op1 op2 = make And op1 op2
+    let (&&) op1 op2 = make Or op1 op2
+    let (||) op1 op2 = make And op1 op2
+    let (+&&) op1 op2 = make LOr op1 op2
+    let (+||) op1 op2 = make LAnd op1 op2
+    let (+&) op1 op2 = make AOr op1 op2
+    let (+|) op1 op2 = make AAnd op1 op2
     let v x = Atom x
   end
 end
@@ -52,6 +60,10 @@ open Boolean
 let op_to_string = function
   | And -> "And"
   | Or -> "Or"
+  | LOr -> "LOr"
+  | LAnd -> "LAnd"
+  | AOr -> "AOr"
+  | AAnd -> "AAnd"
 
 let to_string exp =
   let (!) = Export_ast_php.ml_pattern_string_of_expr in
@@ -59,8 +71,7 @@ let to_string exp =
     function
     | Atom (Ast_php.IdVar (Ast_php.DName(v,_),_),_) -> sprintf "%s" v
     | Atom (x,_) -> !x
-    | List (op,l)
-      -> sprintf "%s(%s)" (op_to_string op) (list_to_string l)
+    | List (op,l) -> sprintf "%s(%s)" (op_to_string op) (list_to_string l)
   and
     list_to_string (l : s t list) : string =
     List.fold_left (fun (c,acc) x ->
@@ -80,6 +91,14 @@ let bool_exp_of_php_exp exp : s Boolean.t =
       Boolean.Lang.(aux lhs (Some op_tok) || aux rhs (Some op_tok))
     | Binary (lhs,(Logical AndBool,op_tok),rhs) ->
       Boolean.Lang.(aux lhs (Some op_tok) && aux rhs (Some op_tok))
+    | Binary (lhs,(Arith And,op_tok),rhs) ->
+      Boolean.Lang.(aux lhs (Some op_tok) +&& aux rhs (Some op_tok))
+    | Binary (lhs,(Arith Or,op_tok),rhs) ->
+      Boolean.Lang.(aux lhs (Some op_tok) +|| aux rhs (Some op_tok))
+    | Binary (lhs,(Logical AndLog,op_tok),rhs) ->
+      Boolean.Lang.(aux lhs (Some op_tok) +& aux rhs (Some op_tok))
+    | Binary (lhs,(Logical OrLog,op_tok),rhs) ->
+      Boolean.Lang.(aux lhs (Some op_tok) +| aux rhs (Some op_tok))
     | ParenExpr (_,exp,_) -> aux exp parent_tok
     | x -> Boolean.Lang.v (x, parent_tok)
   in aux exp None
@@ -121,8 +140,9 @@ let boolean_of_list op (l : s Boolean.t list) : s Boolean.t =
     match l with
     | [Atom x] -> Lang.v x
     | x::y::[] -> make op x y
-    | hd::tl  -> make op hd (aux tl)
-    | [] -> failwith "Error: empty list. Invariant broken."
+    | [List (op,hd::tl)] -> make op hd (aux tl)
+    | hd::tl -> make op hd (aux tl)
+    | [] -> failwith "Error: empty list. Invariant broken"
   in aux l
 
 let rule_dedup (exp : s Boolean.t) : s Boolean.t =
