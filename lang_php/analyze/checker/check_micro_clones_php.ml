@@ -191,7 +191,8 @@ let rule_dedup ?(v=true) exp =
   let dedup l =
     List.fold_right (fun x acc ->
         if List.exists (fun y -> !x = !y) acc
-        then acc else x::acc) l [] in
+        then (print_error x;
+              acc) else x::acc) l [] in
   Bexp.map_children dedup exp
 
 (**
@@ -268,7 +269,6 @@ let check ast =
       Visitor_php.kstmt = (fun (k,_) s ->
           match s with
           | If (if_tok,(_,cond_exp,_),_,elseifs,_) ->
-            simplify cond_exp;
             let exps =
               cond_exp::(List.map (fun ((_,(_,exp,_),_)) -> exp) elseifs)
             in
