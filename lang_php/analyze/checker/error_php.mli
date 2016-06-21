@@ -49,7 +49,7 @@ and error_kind =
   | UnnecessaryTernaryIf
 
   (* micro clones *)
-  | MicroCloneCondExp of string
+  | MicroCloneCondExp of string (*operator *) * string (* expression *)
 
   (* bail-out constructs *)
   | UglyGlobalDynamic

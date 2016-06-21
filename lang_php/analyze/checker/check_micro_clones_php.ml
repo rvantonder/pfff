@@ -1,4 +1,5 @@
 module Ast = Ast_php
+module Error = Error_php
 
 let str_of_tok tok = Parse_info.str_of_info tok
 
@@ -98,6 +99,7 @@ let bool_exp_of_php_exp exp : s Boolean.t =
     | x -> Boolean.Lang.v (x, parent_tok)
   in aux exp None
 
+(*
 let err_msg_of_tok tok =
   Parse_info.token_location_of_info tok
   |> fun info ->
@@ -105,10 +107,10 @@ let err_msg_of_tok tok =
     "%s:%d:%d" info.Parse_info.file
     info.Parse_info.line
     info.Parse_info.column
+*)
 
 (** Find the first var and use that. [v] is for the actual statement *)
-let print_error ?(v=true) exp =
-  let open Printf in
+let emit_error exp =
   let (!) = Unparse_php.string_of_expr in
   let res  =
     let rec aux = function
@@ -117,11 +119,9 @@ let print_error ?(v=true) exp =
       | _ -> None
     in aux exp in
   match res with
-  | Some (dup_var,Some parent_tok) ->
-    let err_msg = err_msg_of_tok parent_tok in
+  | Some (expr,Some parent_tok) ->
     let err_tok = str_of_tok parent_tok in
-    if v then printf " %s:%s:%s\n%!" err_tok err_msg !dup_var
-    else printf " %s:%s\n%!" err_tok err_msg
+    Error.fatal parent_tok (Error.MicroCloneCondExp (err_tok,!expr))
   | _ -> ()
 
 let compare exp1 exp2 =
@@ -130,7 +130,7 @@ let compare exp1 exp2 =
 let dedup l =
   List.fold_left (fun acc x ->
       if List.exists (fun y -> compare x y = 0) acc
-      then (print_error x; acc) else x::acc) [] l |> List.rev
+      then (emit_error x; acc) else x::acc) [] l |> List.rev
 
 let boolean_of_list op (l : s Boolean.t list) : s Boolean.t =
   let rec aux l =
@@ -178,8 +178,7 @@ let check ast =
           match s with
           | If (_,(_,cond_exp,_),_,elseifs,_) ->
             let exps =
-              cond_exp::(List.map (fun ((_,(_,exp,_),_)) -> exp) elseifs)
-            in
+              cond_exp::(List.map (fun ((_,(_,exp,_),_)) -> exp) elseifs) in
             List.iter simplify exps;
             k s
           | _ -> k s)

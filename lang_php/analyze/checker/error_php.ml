@@ -112,7 +112,7 @@ and error_kind =
   | UnnecessaryTernaryIf
 
   (* micro clones *)
-  | MicroCloneCondExp of string
+  | MicroCloneCondExp of string (* operator *) * string (* expression *)
 
   (* bail-out constructs *)
   | UglyGlobalDynamic
@@ -246,8 +246,8 @@ to statically analyze. Please avoid using those features."
   | UnnecessaryTernaryIf ->
     "ternary if (\"?:\") is not necessary here, use the condition or its negation."
 
-  | MicroCloneCondExp exp ->
-    spf "Use of undeclared variable %s." exp
+  | MicroCloneCondExp (op,exp) ->
+    spf "Boolean operator %s contains duplicate expression %s." op exp
 
   | Injection kind ->
     let s =
