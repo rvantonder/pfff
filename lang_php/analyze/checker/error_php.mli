@@ -6,13 +6,13 @@ type error = {
   loc: Parse_info.info;
   sev: severity;
 }
- and severity = Fatal | Warning
+and severity = Fatal | Warning
 
- and error_kind = 
+and error_kind =
   (* entities *)
   | UndefinedEntity    of Entity_php.id_kind * string (* name *)
   | MultiDefinedEntity of Entity_php.id_kind * string (* name *) *
-      (string * string) (* name * name *)
+                          (string * string) (* name * name *)
   | UndefinedClassWhileLookup of string
   | UndefinedMethodInAbstractClass of string
 
@@ -26,7 +26,7 @@ type error = {
   | PassingUnexpectedRef
   | KeywordArgumentForRef
   | FormatStringMismatch of string
-        
+
   (* variables *)
   | UseOfUndefinedVariable of string (* dname *) * suggest option
   | UnusedVariable of string (* dname *)  * Scope_php.phpscope
@@ -48,6 +48,9 @@ type error = {
   | AssignInBooleanContext
   | UnnecessaryTernaryIf
 
+  (* micro clones *)
+  | MicroCloneCondExp of string
+
   (* bail-out constructs *)
   | UglyGlobalDynamic
   | WeirdForeachNoIteratorVar
@@ -61,13 +64,13 @@ type error = {
   | CaseSensitivityKeyword
   | InterfaceMethodWithBody
 
-  and severity2 =
-    | Bad
-    | ReallyBad
-    | ReallyReallyBad
+and severity2 =
+  | Bad
+  | ReallyBad
+  | ReallyReallyBad
 
-  and suggest = string * int (* edit distance *)
-  and injection_kind = XSS | Sql | Shell
+and suggest = string * int (* edit distance *)
+and injection_kind = XSS | Sql | Shell
 
 val string_of_error: error -> string
 val string_of_error_kind: error_kind -> string
@@ -94,15 +97,15 @@ val rank_errors: error list -> error list
 
 val show_10_most_recurring_unused_variable_names: unit -> unit
 
-(* Small helper function generating Undefined (or MultiDefined) error 
- * if the entity was not found (or defined multiple times). 
+(* Small helper function generating Undefined (or MultiDefined) error
+ * if the entity was not found (or defined multiple times).
  *
  * Note that it memoizes the MultiDefined error so the second time
  * it actually returns one of the definition.
- *)
-val find_entity_and_warn: 
+*)
+val find_entity_and_warn:
   Entity_php.entity_finder ->
   (Entity_php.id_kind * Ast_php.name) ->
-   (* callback, will be passed the found entity *)
-   (Ast_php.entity -> unit) ->
-   unit
+  (* callback, will be passed the found entity *)
+  (Ast_php.entity -> unit) ->
+  unit
