@@ -1,10 +1,47 @@
+(** A checker for detecting micro clones. Micro clones are small
+    snippets of repeated expressions or statements. They can often be
+    removed in a semantics-preserving way, (unless expressions have
+    side-effects, for example).
+
+    Currently it supports detection of duplicate expressions inside
+    conditional statements. For example:
+
+    {[
+      if ($a || $b || $c || $d || $e && $e && ($f && ($g || $z) && $h && $i)) {}
+    ]}
+
+    will generate the error
+
+    {[
+      test.php:2:31: CHECK: Boolean operator && contains duplicate expression $e.
+    ]}
+
+    There's lots of room for extensions. In fact,
+    the simplify function produces a simplified expression that can be
+    extended to use Spatch for patching.
+*)
+
 module Ast = Ast_php
 module Error = Error_php
 
-let str_of_tok tok = Parse_info.str_of_info tok
+(** A small module for boolean expressions. It maintains the invariant
+    that a) Boolean expression consists of one or more Atoms b) Boolean
+    expressions are flattened by construction. E.g., And(a, And(b, c))
+    is simplified to And(a, b, c).
 
+    The purpose is to have a common construction and representation
+    for boolean expressions which can be simplified by rewrite rules
+    (e.g., deduplication). This is very much in the same vein as Z3's
+    bool_rewriter.h.
+*)
 module Boolean : sig
-  type op = And | Or | LOr | LAnd | AOr | AAnd
+  (* In this module, support 6 kinds of boolean expressions in PHP *)
+  type op = And  (* && *)
+          | Or   (* || *)
+          | LOr  (* or *)
+          | LAnd (* and *)
+          | AOr  (* | *)
+          | AAnd (* & *)
 
   type 'a t = private
     | Atom of 'a
@@ -49,9 +86,9 @@ end = struct
   end
 end
 
-type s = Ast_php.expr * Ast_php.tok option
-
 open Boolean
+
+type s = Ast_php.expr * Ast_php.tok option
 
 let op_to_string = function
   | And -> "And"
@@ -99,31 +136,22 @@ let bool_exp_of_php_exp exp : s Boolean.t =
     | x -> Boolean.Lang.v (x, parent_tok)
   in aux exp None
 
-(*
-let err_msg_of_tok tok =
-  Parse_info.token_location_of_info tok
-  |> fun info ->
-  Printf.sprintf
-    "%s:%d:%d" info.Parse_info.file
-    info.Parse_info.line
-    info.Parse_info.column
-*)
-
-(** Find the first var and use that. [v] is for the actual statement *)
-let emit_error exp =
-  let (!) = Unparse_php.string_of_expr in
+(** Use the first Atom in the duplicate expression. *)
+let emit_error expr =
   let res  =
     let rec aux = function
       | Atom x -> Some x
       | List (_,hd::_) -> aux hd
       | _ -> None
-    in aux exp in
+    in aux expr in
   match res with
-  | Some (expr,Some parent_tok) ->
-    let err_tok = str_of_tok parent_tok in
-    Error.fatal parent_tok (Error.MicroCloneCondExp (err_tok,!expr))
+  | Some (expr,Some op_tok) ->
+    let err_tok = Parse_info.str_of_info op_tok in
+    let err_expr = Unparse_php.string_of_expr expr in
+    Error.fatal op_tok (Error.MicroCloneCondExp (err_tok,err_expr))
   | _ -> ()
 
+(** Compare expressions syntactically *)
 let compare exp1 exp2 =
   String.compare (to_string exp1) (to_string exp2)
 
@@ -132,6 +160,7 @@ let dedup l =
       if List.exists (fun y -> compare x y = 0) acc
       then (emit_error x; acc) else x::acc) [] l |> List.rev
 
+(** Helper function to reconstruct Boolean.t *)
 let boolean_of_list op (l : s Boolean.t list) : s Boolean.t =
   let rec aux l =
     match l with
@@ -139,14 +168,16 @@ let boolean_of_list op (l : s Boolean.t list) : s Boolean.t =
     | x::y::[] -> make op x y
     | [List (op,hd::tl)] -> make op hd (aux tl)
     | hd::tl -> make op hd (aux tl)
-    | [] -> failwith "Error: empty list. Invariant broken"
+    | [] -> failwith "Error: Cannot construct a Boolean from an empty list."
   in aux l
 
+(** Rewrite rule *)
 let rule_dedup (exp : s Boolean.t) : s Boolean.t =
   match exp with
   | List (op,l) -> dedup l |> boolean_of_list op
   | Atom x -> Lang.v x
 
+(** Bottom-up exression rewriter *)
 let bur_map f (exp : s Boolean.t) : s Boolean.t =
   let rec aux exp =
     match exp with
@@ -156,11 +187,11 @@ let bur_map f (exp : s Boolean.t) : s Boolean.t =
     | x -> f x in
   aux exp
 
-let simplify ?(v=false) exp =
+let simplify ?(verbose=false) exp =
   let open Printf in
   let exp' = bool_exp_of_php_exp exp in
   let exp'' = bur_map rule_dedup exp' in
-  if v then
+  if verbose then
     let s' = to_string exp' in
     let s'' = to_string exp'' in
     if s' <> s'' then
