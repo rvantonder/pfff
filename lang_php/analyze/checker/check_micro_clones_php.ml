@@ -19,15 +19,19 @@
     There's lots of room for extensions. In fact,
     the simplify function produces a simplified expression that can be
     extended to use Spatch for patching.
+
+    Why raw AST? -> spatch.
+    Why not graph? couldn't get it to work, but they do do duplicate detection
+    of function names there.
 *)
 
 module Ast = Ast_php
 module Error = Error_php
 
 (** A small module for boolean expressions. It maintains the invariant
-    that a) Boolean expression consists of one or more Atoms b) Boolean
-    expressions are flattened by construction. E.g., And(a, And(b, c))
-    is simplified to And(a, b, c).
+    that a) Boolean expression consists of a binary operator and two or more
+    Atoms b) Boolean expressions are flattened by construction. E.g., And(a,
+    And(b, c)) is simplified to And(a, b, c).
 
     The purpose is to have a common construction and representation
     for boolean expressions which can be simplified by rewrite rules
